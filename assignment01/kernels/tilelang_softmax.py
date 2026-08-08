@@ -26,7 +26,6 @@ import tilelang.language as T
 def next_power_of_2(n):
   return 1 << (n - 1).bit_length()
 
-@tilelang.jit
 def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
   @T.prim_func
   def main(
