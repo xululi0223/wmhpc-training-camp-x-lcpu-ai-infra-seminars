@@ -48,7 +48,7 @@ def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
         X_frag[j] = T.if_then_else(
           j < N,
           X[bx, j],
-          -T.infinity(type)
+          -T.infinity(dtype)
         )
       
       T.reduce_max(X_frag, row_max, dim=0)
@@ -58,7 +58,7 @@ def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
 
       T.reduce_sum(X_frag, row_sum, dim=0)
 
-      for j in Parallel(BLOCK_N):
+      for j in T.Parallel(BLOCK_N):
         if j < N:
           Y[bx, j] = X_frag[j] / row_sum[0]
 
