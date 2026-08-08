@@ -42,13 +42,14 @@ def softmax_kernel(X, Y, m, n, BLOCK_N: tl.constexpr):
 
 
 def softmax(x: torch.Tensor) -> torch.Tensor:
+  M, N = x.shape
   BLOCK_N = triton.next_power_of_2(N)
   grid = (M,)
 
   y = torch.empty_like(x)
 
   softmax_kernel[grid](
-    x, y, n=n, BLOCK_N=BLOCK_N
+    x, y, n=N, BLOCK_N=BLOCK_N
   )
 
   return y
