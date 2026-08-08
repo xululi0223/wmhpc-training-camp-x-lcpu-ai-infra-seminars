@@ -56,7 +56,7 @@ def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
   return main
 
 def softmax(x: torch.Tensor) -> torch.Tensor:
-  kernel = tilelang.compile(make_softmax(x.size[0], x.size[1]))
+  kernel = tilelang.compile(make_softmax(x.shape[0], x.shape[1]))
   out = torch.empty_like(x)
   kernel(x, out)
   return out
