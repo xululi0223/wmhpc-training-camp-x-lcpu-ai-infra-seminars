@@ -36,9 +36,9 @@ def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
     ) as bx:
 
       # 每个 block 处理一行
-      X_frag = T.alloc_fragment(N, dtype)
-      row_max = T.alloc_fragment(1, dtype)
-      row_sum = T.alloc_fragment(1, dtype)
+      X_frag = T.alloc_fragment((N,), dtype)
+      row_max = T.alloc_fragment((1,), dtype)
+      row_sum = T.alloc_fragment((1,), dtype)
 
       T.copy(X[bx, 0], X_frag)
 
