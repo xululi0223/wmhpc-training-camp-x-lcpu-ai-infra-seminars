@@ -36,23 +36,48 @@ def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
     ) as bx:
 
       # 每个 block 处理一行
-      X_frag = T.alloc_fragment((N,), dtype)
-      row_max = T.alloc_fragment((1,), dtype)
-      row_sum = T.alloc_fragment((1,), dtype)
+      X_frag = T.alloc_fragment((BLOCK_N,), dtype)
 
-      T.copy(X[bx, 0], X_frag)
+      block_max = T.alloc_fragment((1,), dtype)
+      block_sum = T.alloc_fragment((1,), dtype)
 
-      T.reduce_max(X_frag, row_max, dim=0)
+      row_max = T.alloc_var(dtype)
+      row_sum = T.alloc_var(dtype)
 
-      for j in T.Parallel(N):
-        X_frag[j] = T.exp(X_frag[j] - row_max[0])
-      
-      T.reduce_sum(X_frag, row_sum, dim=0)
+      row_max[0] = -T.infinity(dtype)
 
-      for j in T.Parallel(N):
-        X_frag[j] = X_frag[j] / row_sum[0]
-      
-      T.copy(X_frag, Y[bx, 0])
+      for k in range(T.ceildiv(N, BLOCK_N)):
+        for j in T.Parallel(BLOCK_N):
+          gj = k * BLOCK_N + j
+
+          if gj < N:
+            X_frag[j] = X[bx, gj]
+          else:
+            X_frag[j] = -T.infinity(dtype)
+
+        T.reduce_max(X_frag, block_max, dim=0)
+
+        row_max[0] = T.max(row_max[0], block_max[0])
+
+      row_sum[0] = 0.0
+
+      for k in range(T.ceildiv(N, BLOCK_N)):
+        for j in T.Parallel(BLOCK_N):
+          gj = k * BLOCK_N + j
+          if gj < N:
+            X_frag[j] = T.exp(X[bx, gj] - row_max[0])
+          else:
+            X_frag[j] = 0.0
+        
+        T.reduce_sum(X_frag, block_sum, dim=0)
+        row_sum[0] += block_sum[0]
+
+      for k in range(T.ceildiv(N, BLOCK_N)):
+        for j in T.Parallel(BLOCK_N):
+          gj = k * BLOCK_N + j
+          if gj < N:
+            Y[bx, gj] = T.exp(X[bx, gj] - row_max[0]) / row_sum[0]
+            
   return main
 
 def softmax(x: torch.Tensor) -> torch.Tensor:
