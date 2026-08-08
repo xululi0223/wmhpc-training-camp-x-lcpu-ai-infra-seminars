@@ -60,7 +60,7 @@ def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
 
       for j in Parallel(BLOCK_N):
         if j < N:
-          Y[bx, j] X_frag[j] / row_sum[0]
+          Y[bx, j] = X_frag[j] / row_sum[0]
 
   return main
 
