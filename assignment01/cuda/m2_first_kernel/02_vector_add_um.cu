@@ -9,6 +9,9 @@
 //      外，窗口从"数据已经在内存里备好"开始，到 CPU 把结果全部读完为止
 //      （下面用一个累加校验和的循环代表"CPU 读完全部结果"，别把它删了）。
 // 改完仍要 PASS。
+
+// 原始性能：搬运 + kernel + 读回: 52.8 ms
+// 修改后：搬运 + kernel + 读回: 403.9 ms
 #include <chrono>
 #include "common.h"
 
@@ -25,20 +28,31 @@ int main() {
     // 放进计时窗口会把要观察的差距完全淹掉。
     CUDA_CHECK(cudaFree(0));
 
-    float *h_a = (float *)malloc(bytes);
-    float *h_b = (float *)malloc(bytes);
-    float *h_c = (float *)malloc(bytes);
-    fill_random(h_a, n, 1);
-    fill_random(h_b, n, 2);
+
+
+    // float *h_a = (float *)malloc(bytes);
+    // float *h_b = (float *)malloc(bytes);
+    // float *h_c = (float *)malloc(bytes);
+
+    float *managed_a, *managed_b, *managed_c;
+    cudaMallocManaged((void**)&managed_a, bytes);
+    cudaMallocManaged((void**)&managed_b, bytes);
+    cudaMallocManaged((void**)&managed_c, bytes);
+
+    // fill_random(h_a, n, 1);
+    // fill_random(h_b, n, 2);
+    fill_random(managed_a, n, 1);
+    fill_random(managed_b, n, 2);
 
     // 期望的校验和，host 上先算好，同样不计入计时。
     double want = 0;
-    for (int i = 0; i < n; i++) want += (double)(h_a[i] + h_b[i]);
+    // for (int i = 0; i < n; i++) want += (double)(h_a[i] + h_b[i]);
+    for (int i = 0; i < n; i++) want += (double)(managed_a[i] + managed_b[i]);
 
-    float *d_a, *d_b, *d_c;
-    CUDA_CHECK(cudaMalloc(&d_a, bytes));
-    CUDA_CHECK(cudaMalloc(&d_b, bytes));
-    CUDA_CHECK(cudaMalloc(&d_c, bytes));
+    // float *d_a, *d_b, *d_c;
+    // CUDA_CHECK(cudaMalloc(&d_a, bytes));
+    // CUDA_CHECK(cudaMalloc(&d_b, bytes));
+    // CUDA_CHECK(cudaMalloc(&d_c, bytes));
 
     int threads = 256;
     int blocks = (n + threads - 1) / threads;
@@ -46,17 +60,20 @@ int main() {
     // ================= 计时窗口开始 =================
     auto t0 = std::chrono::steady_clock::now();
 
-    CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice));
+    // CUDA_CHECK(cudaMemcpy(d_a, h_a, bytes, cudaMemcpyHostToDevice));
+    // CUDA_CHECK(cudaMemcpy(d_b, h_b, bytes, cudaMemcpyHostToDevice));
 
-    vectorAdd<<<blocks, threads>>>(d_a, d_b, d_c, n);
+    // vectorAdd<<<blocks, threads>>>(d_a, d_b, d_c, n);
+    vectorAdd<<<blocks, threads>>>(managed_a, managed_b, managed_c, n);
     CUDA_CHECK_KERNEL();
+    CUDA_CHECK(cudaDeviceSynchronize());
 
-    CUDA_CHECK(cudaMemcpy(h_c, d_c, bytes, cudaMemcpyDeviceToHost));
+    // CUDA_CHECK(cudaMemcpy(h_c, d_c, bytes, cudaMemcpyDeviceToHost));
 
     // CPU 读完全部结果。unified memory 版里，这一步才会把结果页搬回 host。
     double got = 0;
-    for (int i = 0; i < n; i++) got += (double)h_c[i];
+    // for (int i = 0; i < n; i++) got += (double)h_c[i];
+    for (int i = 0; i < n; i++) got += (double)managed_c[i];
 
     auto t1 = std::chrono::steady_clock::now();
     // ================= 计时窗口结束 =================

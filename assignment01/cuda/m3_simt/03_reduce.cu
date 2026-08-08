@@ -40,10 +40,77 @@
 
 __global__ void reduce_interleaved(const float *in, float *out) {
     // TODO：从这里开始写（交错配对版本）
+    int n = blockDim.x;
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * n + tid;
+
+    __shared__ float buf[BLOCK];
+
+    buf[tid] = in[idx];
+    __syncthreads();
+
+    for (int s = 1; s < n; s *= 2) {
+        if (tid % (2 * s) == 0) {
+            buf[tid] += buf[tid + s];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        out[blockIdx.x] = buf[0];
+    }
 }
 
 __global__ void reduce_contiguous(const float *in, float *out) {
     // TODO：从这里开始写（连续配对版本）
+    int n = blockDim.x;
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * n + tid;
+
+    __shared__ float buf[BLOCK];
+
+    buf[tid] = in[idx];
+    __syncthreads();
+
+    for (int s = n / 2; s > 0; s /= 2) {
+        if (tid < s) {
+            buf[tid] += buf[tid + s];
+        }
+        __syncthreads();
+    }
+
+    if (tid == 0) {
+        out[blockIdx.x] = buf[0];
+    }
+}
+
+__global__ void reduce_shuffle(const float *in, float *out) {
+    // TODO：从这里开始写（shuffle 版本）
+    int n = blockDim.x;
+    int tid = threadIdx.x;
+    int idx = blockIdx.x * n + tid;
+
+    __shared__ float buf[BLOCK];
+
+    buf[tid] = in[idx];
+    __syncthreads();
+
+    for (int s = n / 2; s >= 32; s /= 2) {
+        if (tid < s) {
+            buf[tid] += buf[tid + s];
+        }
+        __syncthreads();
+    }
+
+    // 使用 shuffle 指令在 warp 内完成最后的归约
+    for (int offset = 16; offset > 0; offset /= 2) {
+        float val = __shfl_down_sync(0xffffffff, buf[tid], offset);
+        buf[tid] += val;
+    }
+
+    if (tid == 0) {
+        out[blockIdx.x] = buf[0];
+    }
 }
 
 // ---------------- 以下是判测与计时，不要修改 ----------------
@@ -97,6 +164,8 @@ int main() {
     float ms_i = run_one(reduce_interleaved, "interleaved", d_in, d_out, h_out,
                          h_partial, nblocks);
     float ms_c = run_one(reduce_contiguous, "contiguous ", d_in, d_out, h_out,
+                         h_partial, nblocks);
+    float ms_s = run_one(reduce_shuffle, "shuffle    ", d_in, d_out, h_out,
                          h_partial, nblocks);
     // 阈值 1.5x：A100 实测 2.22x、V100 实测 2.33x，两版写成一样时是 ~1x。
     float ratio = report_speedup("interleaved / contiguous", ms_i, ms_c, 1.5f,

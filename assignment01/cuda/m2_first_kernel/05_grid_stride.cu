@@ -8,7 +8,10 @@
 
 __global__ void vectorAdd(const float *a, const float *b, float *c, int n) {
     int idx = threadIdx.x + blockIdx.x * blockDim.x;
-    if (idx < n) c[idx] = a[idx] + b[idx];
+
+    for (; idx < n; idx += blockDim.x * gridDim.x) {
+        if (idx < n) c[idx] = a[idx] + b[idx];
+    }
 }
 
 int main() {
