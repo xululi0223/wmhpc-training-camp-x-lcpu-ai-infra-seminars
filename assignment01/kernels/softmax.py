@@ -25,7 +25,7 @@ def softmax_kernel(X, Y, m, n, BLOCK_N: tl.constexpr):
   cols = tl.arange(0, BLOCK_N)
   mask = cols < n
 
-  x_ptrs = X + row * N + cols
+  x_ptrs = X + row * n + cols
 
   x = tl.load(x_ptrs, mask=mask, other=-float("inf"))
 
@@ -37,7 +37,7 @@ def softmax_kernel(X, Y, m, n, BLOCK_N: tl.constexpr):
 
   y = numerator / denominator
 
-  y_ptrs = Y + row * N + cols
+  y_ptrs = Y + row * n + cols
   tl.store(y_ptrs, y, mask=mask)
 
 
@@ -49,7 +49,7 @@ def softmax(x: torch.Tensor) -> torch.Tensor:
   y = torch.empty_like(x)
 
   softmax_kernel[grid](
-    x, y, n=N, BLOCK_N=BLOCK_N
+    x, y, m=M, n=N, BLOCK_N=BLOCK_N
   )
 
   return y
