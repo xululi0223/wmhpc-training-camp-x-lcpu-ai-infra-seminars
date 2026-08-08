@@ -23,6 +23,9 @@ import torch
 import tilelang
 import tilelang.language as T
 
+def next_power_of_2(n):
+  return 1 << (n - 1).bit_length()
+
 @tilelang.jit
 def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
   @T.prim_func
@@ -38,50 +41,39 @@ def make_softmax(M, N, BLOCK_M=128, BLOCK_N=128, threads=128, dtype="float32"):
       # 每个 block 处理一行
       X_frag = T.alloc_fragment((BLOCK_N,), dtype)
 
-      block_max = T.alloc_fragment((1,), dtype)
-      block_sum = T.alloc_fragment((1,), dtype)
+      row_max = T.alloc_fragment((1,), dtype)
+      row_sum = T.alloc_fragment((1,), dtype)
 
-      row_max = T.alloc_var(dtype)
-      row_sum = T.alloc_var(dtype)
+      for j in T.Parallel(BLOCK_N):
+        X_frag[j] = T.if_then_else(
+          j < N,
+          X[bx, j],
+          -T.infinity(type)
+        )
+      
+      T.reduce_max(X_frag, row_max, dim=0)
 
-      row_max[0] = -T.infinity(dtype)
+      for j in T.Parallel(BLOCK_N):
+        X_frag[j] = T.exp(X_frag[j] - row_max[0])
 
-      for k in range(T.ceildiv(N, BLOCK_N)):
-        for j in T.Parallel(BLOCK_N):
-          gj = k * BLOCK_N + j
+      T.reduce_sum(X_frag, row_sum, dim=0)
 
-          if gj < N:
-            X_frag[j] = X[bx, gj]
-          else:
-            X_frag[j] = -T.infinity(dtype)
+      for j in Parallel(BLOCK_N):
+        if j < N:
+          Y[bx, j] X_frag[j] / row_sum[0]
 
-        T.reduce_max(X_frag, block_max, dim=0)
-
-        row_max[0] = T.max(row_max[0], block_max[0])
-
-      row_sum[0] = 0.0
-
-      for k in range(T.ceildiv(N, BLOCK_N)):
-        for j in T.Parallel(BLOCK_N):
-          gj = k * BLOCK_N + j
-          if gj < N:
-            X_frag[j] = T.exp(X[bx, gj] - row_max[0])
-          else:
-            X_frag[j] = 0.0
-        
-        T.reduce_sum(X_frag, block_sum, dim=0)
-        row_sum[0] += block_sum[0]
-
-      for k in range(T.ceildiv(N, BLOCK_N)):
-        for j in T.Parallel(BLOCK_N):
-          gj = k * BLOCK_N + j
-          if gj < N:
-            Y[bx, gj] = T.exp(X[bx, gj] - row_max[0]) / row_sum[0]
-            
   return main
 
+_kernel_cache = {}
+
 def softmax(x: torch.Tensor) -> torch.Tensor:
-  kernel = tilelang.compile(make_softmax(x.shape[0], x.shape[1]))
+  M, N = x.shape
+  BLOCK_N = next_power_of_2(N)
+
+  key = (M, N)
+
+  if key not in _kernel_cache:
+    _kernel_cache[key] = tilelang.compile(make_softmax(M, N, BLOCK_N=BLOCK_N))
   out = torch.empty_like(x)
-  kernel(x, out)
+  _kernel_cache[key](x, out)
   return out
